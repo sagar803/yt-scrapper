@@ -23,7 +23,7 @@ export const getComments = async (videoLink) => {
     });
 
     await browser.close();
-    return { comments };
+    return comments;
   } catch (error) {
     console.log("some error", error);
   }

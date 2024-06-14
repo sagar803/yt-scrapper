@@ -10,10 +10,13 @@ export const getVideoDetails = async (videoLink) => {
     await page.waitForSelector("div#bottom-row");
     await page.click("div#bottom-row");
 
-    let element = await page.waitForSelector(
-      "ytd-button-renderer > yt-spec-button-shape-next.yt-spec-button-shape-next--outline.yt-spec-button-shape-next--call-to-action.yt-spec-button-shape-next--size-m"
+    await page.waitForSelector(
+      "#primary-button > ytd-button-renderer > yt-button-shape > button"
     );
-    await element.click();
+    await page.click(
+      "#primary-button > ytd-button-renderer > yt-button-shape > button"
+    );
+
     // const element = await page.waitForXPath(
     //   '//*[@id="primary-button"]/ytd-button-renderer/button'
     // );

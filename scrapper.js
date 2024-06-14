@@ -2,6 +2,8 @@ import puppeteer from "puppeteer";
 import fs from "fs";
 import util from "util";
 import { getComments } from "./comments.js";
+// app.js
+import { exec } from "child_process";
 
 const writeFileAsync = util.promisify(fs.writeFile);
 const appendFileAsync = util.promisify(fs.appendFile);
@@ -42,14 +44,41 @@ async function searchYouTube(keyword) {
       const uploadDate = video.querySelector(
         "div#metadata-line span:nth-of-type(2)"
       )?.innerText;
+      // Extract video ID from the link
+      const urlParams = new URLSearchParams(link.split("?")[1]);
+      const videoId = urlParams.get("v");
 
-      videoData.push({ title, link, uploadDate });
+      videoData.push({ title, link, uploadDate, videoId });
     });
     return videoData;
   });
 
   await browser.close();
   return videos;
+}
+
+function getYouTubeTranscripts(videoId) {
+  return new Promise((resolve, reject) => {
+    exec(`python transcripts.py ${videoId}`, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`exec error: ${error}`);
+        reject(error);
+        return;
+      }
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
+        reject(stderr);
+        return;
+      }
+      try {
+        const transcripts = JSON.parse(stdout);
+        resolve(transcripts);
+      } catch (e) {
+        console.error("Error parsing JSON", e);
+        reject(e);
+      }
+    });
+  });
 }
 
 (async () => {
@@ -71,17 +100,17 @@ async function searchYouTube(keyword) {
   await mkdirAsync("./scraped_data", { recursive: true });
   await writeFileAsync(filename, JSON.stringify([], null, 2), "utf8");
 
+  console.log(`Data is getting saved to ${filename}`);
   // scrapping comments for each video
   for (const video of allVideos) {
     video.comments = await getComments(video.link);
+    video.transcripts = await getYouTubeTranscripts(video.videoId);
     const currentData = await fs.promises.readFile(filename, "utf8");
     const jsonData = JSON.parse(currentData);
     jsonData.push(video);
     const dataToSave = JSON.stringify(jsonData, null, 2);
-
     await writeFileAsync(filename, dataToSave, "utf8");
     console.log(`Appended data for video: ${video.title}`);
-    //    video.transcript = details.transcript;
   }
 
   console.log(`Data saved to ${filename}`);
