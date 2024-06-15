@@ -1,15 +1,14 @@
 import fs from "fs";
 import util from "util";
-import nlp from "compromise";
 import { exec } from "child_process";
-import { keywords, keyPhrases } from "./inputs.js";
+import { keywords, keymoments_instructions } from "./inputs.js";
 import { getComments } from "./scripts/comments.js";
 import { searchYouTube } from "./scripts/videos.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { extractKeyphraseGemini } from "./scripts/keymoments.js";
 
 const writeFileAsync = util.promisify(fs.writeFile);
-const appendFileAsync = util.promisify(fs.appendFile);
 const mkdirAsync = util.promisify(fs.mkdir);
 
 function getYouTubeTranscripts(videoId) {
@@ -38,15 +37,6 @@ function getYouTubeTranscripts(videoId) {
     );
   });
 }
-
-// Function to extract key phrases
-const extractKeyPhrases = (text, keywords) => {
-  const doc = nlp(text);
-  const sentences = doc.sentences().out("array");
-  return sentences.filter((sentence) => {
-    return keywords.some((keyword) => sentence.toLowerCase().includes(keyword));
-  });
-};
 
 (async () => {
   let allVideos = [];
@@ -79,7 +69,10 @@ const extractKeyPhrases = (text, keywords) => {
   // scrapping comments and transcripts for each video
   for (const video of allVideos) {
     try {
+      //scrapping comments
       video.comments = await getComments(video.link);
+
+      //scrapping transcripts
       let transcripts = await getYouTubeTranscripts(video.videoId);
       video.transcripts = {};
       let transcript_string = transcripts[0]
@@ -87,7 +80,17 @@ const extractKeyPhrases = (text, keywords) => {
         .join(" ");
       video.transcripts.string = transcript_string;
       video.transcripts.timestamped = transcripts[0];
-      //      video.keyphrase = await extractKeyPhrases(transcript_string, keyPhrases);
+
+      //scrapping keyphrase
+      if (transcript_string && transcript_string.length > 0) {
+        const res = await extractKeyphraseGemini(
+          keymoments_instructions + transcript_string
+        );
+        const array = res.split("-");
+        video.keyphrase = array.map((s) => s.trim());
+      } else video.keyphrase = [];
+
+      //appending data to the file
       const currentData = await fs.promises.readFile(filepath, "utf8");
       const jsonData = JSON.parse(currentData);
       jsonData.push(video);

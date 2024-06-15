@@ -47,3 +47,30 @@ export const searchYouTube = async (keyword) => {
   await browser.close();
   return videos;
 };
+
+// function convertFuzzyDateToDate(fuzzyDateString) {
+//   const units = fuzzyDateString.split(/\s+/)[0]; // Extract the number (e.g., "9")
+//   const unitType = fuzzyDateString.split(/\s+/)[1].toLowerCase(); // Extract the unit (e.g., "month")
+
+//   const now = new Date();
+
+//   switch (unitType) {
+//     case "year":
+//       now.setFullYear(now.getFullYear() - parseInt(units));
+//       break;
+//     case "month":
+//       now.setMonth(now.getMonth() - parseInt(units));
+//       break;
+//     case "week":
+//       now.setDate(now.getDate() - (parseInt(units) * 7));
+//       break;
+//     case "day":
+//       now.setDate(now.getDate() - parseInt(units));
+//       break;
+//     default:
+//       console.warn("Unsupported unit:", unitType);
+//       return null;
+//   }
+
+//   return now.toISOString().split('T')[0]; // Return the date part only (YYYY-MM-DD)
+// }
