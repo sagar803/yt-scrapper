@@ -1,116 +1,102 @@
-import puppeteer from "puppeteer";
 import fs from "fs";
 import util from "util";
-import { getComments } from "./comments.js";
-// app.js
+import nlp from "compromise";
 import { exec } from "child_process";
+import { keywords, keyPhrases } from "./inputs.js";
+import { getComments } from "./scripts/comments.js";
+import { searchYouTube } from "./scripts/videos.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const writeFileAsync = util.promisify(fs.writeFile);
 const appendFileAsync = util.promisify(fs.appendFile);
 const mkdirAsync = util.promisify(fs.mkdir);
 
-async function searchYouTube(keyword) {
-  const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
-
-  //filter to get videos uploaded within 1 year
-  const sp = "CAASBAgFEAE%253D";
-  await page.goto(
-    `https://www.youtube.com/results?search_query=${encodeURIComponent(
-      keyword
-    )}&sp=CAASBAgFEAE%253D`
-  );
-
-  // Search for the keyword
-  // await page.type("input#search", keyword);
-  // await page.click("button#search-icon-legacy");
-  await page.waitForSelector("ytd-video-renderer");
-
-  //scroll to get more result
-  // let scroll = 500;
-  // while (scroll < 3000) {
-  //   await page.evaluate(`window.scrollTo(0, ${scroll})`);
-  //   scroll += 500;
-  //   await new Promise((resolve) => setTimeout(resolve, 1000));
-  // }
-  // Extract video links and upload dates
-  const videos = await page.evaluate(() => {
-    const videoElements = document.querySelectorAll("ytd-video-renderer");
-    const videoData = [];
-    videoElements.forEach((video) => {
-      console.log(video);
-      const title = video.querySelector("a#video-title")?.innerText;
-      const link = video.querySelector("a#video-title")?.href;
-      const uploadDate = video.querySelector(
-        "div#metadata-line span:nth-of-type(2)"
-      )?.innerText;
-      // Extract video ID from the link
-      const urlParams = new URLSearchParams(link.split("?")[1]);
-      const videoId = urlParams.get("v");
-
-      videoData.push({ title, link, uploadDate, videoId });
-    });
-    return videoData;
-  });
-
-  await browser.close();
-  return videos;
-}
-
 function getYouTubeTranscripts(videoId) {
   return new Promise((resolve, reject) => {
-    exec(`python transcripts.py ${videoId}`, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`exec error: ${error}`);
-        reject(error);
-        return;
+    exec(
+      `python scripts/transcripts.py ${videoId}`,
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          reject(error);
+          return;
+        }
+        if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          reject(stderr);
+          return;
+        }
+        try {
+          const transcripts = JSON.parse(stdout);
+          resolve(transcripts);
+        } catch (e) {
+          console.error("Error parsing JSON", e);
+          reject(e);
+        }
       }
-      if (stderr) {
-        console.error(`stderr: ${stderr}`);
-        reject(stderr);
-        return;
-      }
-      try {
-        const transcripts = JSON.parse(stdout);
-        resolve(transcripts);
-      } catch (e) {
-        console.error("Error parsing JSON", e);
-        reject(e);
-      }
-    });
+    );
   });
 }
 
+// Function to extract key phrases
+const extractKeyPhrases = (text, keywords) => {
+  const doc = nlp(text);
+  const sentences = doc.sentences().out("array");
+  return sentences.filter((sentence) => {
+    return keywords.some((keyword) => sentence.toLowerCase().includes(keyword));
+  });
+};
+
 (async () => {
-  const keywords = [
-    "Delhi NCR real estate",
-    "property listing Delh",
-    "house for sale in Delhi NCR",
-  ];
   let allVideos = [];
 
   for (const keyword of keywords) {
-    const videos = await searchYouTube(keyword);
-    allVideos = allVideos.concat(videos);
+    try {
+      const videos = await searchYouTube(keyword);
+      allVideos = allVideos.concat(videos);
+      console.log(`Gathered ${videos.length} videos for: ${keyword}`);
+    } catch (error) {
+      console.log(error);
+    }
   }
-  console.log(allVideos);
+  console.log(`Total Videos Gathered: ${allVideos.length}`);
 
   const timestamp = new Date().toISOString().replace(/:/g, "-");
   const filename = `scraped_data_${timestamp}.txt`;
-  await mkdirAsync("./scraped_data", { recursive: true });
-  await writeFileAsync(filename, JSON.stringify([], null, 2), "utf8");
 
-  console.log(`Data is getting saved to ${filename}`);
-  // scrapping comments for each video
+  // Convert __dirname for ES modules
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+
+  const dir = path.join(__dirname, "scraped_data");
+  const filepath = path.join(dir, filename);
+
+  await mkdirAsync(dir, { recursive: true });
+  await writeFileAsync(filepath, JSON.stringify([], null, 2), "utf8");
+
+  console.log(`Writing data on File: ${filename}`);
+  // scrapping comments and transcripts for each video
   for (const video of allVideos) {
-    video.comments = await getComments(video.link);
-    video.transcripts = await getYouTubeTranscripts(video.videoId);
-    const currentData = await fs.promises.readFile(filename, "utf8");
-    const jsonData = JSON.parse(currentData);
-    jsonData.push(video);
-    const dataToSave = JSON.stringify(jsonData, null, 2);
-    await writeFileAsync(filename, dataToSave, "utf8");
-    console.log(`Appended data for video: ${video.title}`);
+    try {
+      video.comments = await getComments(video.link);
+      let transcripts = await getYouTubeTranscripts(video.videoId);
+      video.transcripts = {};
+      let transcript_string = transcripts[0]
+        ?.map((item) => item.text)
+        .join(" ");
+      video.transcripts.string = transcript_string;
+      video.transcripts.timestamped = transcripts[0];
+      //      video.keyphrase = await extractKeyPhrases(transcript_string, keyPhrases);
+      const currentData = await fs.promises.readFile(filepath, "utf8");
+      const jsonData = JSON.parse(currentData);
+      jsonData.push(video);
+      const dataToSave = JSON.stringify(jsonData, null, 2);
+      await writeFileAsync(filepath, dataToSave, "utf8");
+      console.log(`Appended data for video: ${video.title}`);
+    } catch (error) {
+      console.log(error);
+    }
   }
 
   console.log(`Data saved to ${filename}`);

@@ -25,6 +25,6 @@ export const getComments = async (videoLink) => {
     await browser.close();
     return comments;
   } catch (error) {
-    console.log("some error", error);
+    console.log(`Error scrapping comments for ${videoLink}`);
   }
 };
